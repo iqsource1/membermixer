@@ -126,7 +126,7 @@ export function ChatWindow({ chatId, currentUserId, otherUserName, onEndChat }: 
         id: `temp-${Date.now()}`,
         chat_id: chatId,
         user_id: currentUserId,
-        text: messageText || null,
+        text: messageText,
         attachment_path: attachmentPath,
         timestamp: new Date().toISOString(),
       };
