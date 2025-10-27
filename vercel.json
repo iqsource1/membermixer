@@ -1,0 +1,18 @@
+{
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "NEXT_PUBLIC_WHOP_CLIENT_ID": "@next_public_whop_client_id",
+    "WHOP_SECRET_KEY": "@whop_secret_key",
+    "WHOP_WEBHOOK_SECRET": "@whop_webhook_secret",
+    "NEXT_PUBLIC_WHOP_ENVIRONMENT": "production",
+    "NEXT_PUBLIC_PUSHER_APP_KEY": "@next_public_pusher_app_key",
+    "PUSHER_APP_ID": "@pusher_app_id",
+    "PUSHER_APP_SECRET": "@pusher_app_secret",
+    "NEXT_PUBLIC_PUSHER_CLUSTER": "@next_public_pusher_cluster"
+  }
+}
+
