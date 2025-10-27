@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProfile, createOrUpdateProfile } from '@/lib/supabase';
 
+// Force Node.js runtime (not Edge) for Supabase compatibility
+export const runtime = 'nodejs';
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

@@ -14,6 +14,15 @@ export function getSupabaseAdmin(): SupabaseClient {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+    console.log('[Supabase Admin] Initializing with:', {
+      hasUrl: !!supabaseUrl,
+      hasKey: !!serviceRoleKey,
+      urlLength: supabaseUrl?.length,
+      keyLength: serviceRoleKey?.length,
+      urlStart: supabaseUrl?.substring(0, 30),
+      keyStart: serviceRoleKey?.substring(0, 20)
+    });
+
     if (!supabaseUrl || !serviceRoleKey) {
       throw new Error(
         `Missing Supabase credentials: URL=${!!supabaseUrl}, ServiceKey=${!!serviceRoleKey}`
@@ -26,6 +35,8 @@ export function getSupabaseAdmin(): SupabaseClient {
         persistSession: false
       }
     });
+
+    console.log('[Supabase Admin] Client created successfully');
   }
 
   return _supabaseAdmin;
