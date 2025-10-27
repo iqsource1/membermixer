@@ -57,7 +57,9 @@ export default function ProfilePage() {
       if (response.ok) {
         router.push('/matches');
       } else {
-        alert('Failed to save profile. Please try again.');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Profile save error:', errorData);
+        alert(`Failed to save profile: ${errorData.error || 'Please try again.'}\n\nDetails: ${errorData.details || 'No details'}`);
       }
     } catch (error) {
       console.error('Failed to save profile:', error);
