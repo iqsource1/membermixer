@@ -109,7 +109,7 @@ export function ChatWindow({ chatId, currentUserId, otherUserName, onEndChat }: 
     setInput('');
     setIsSending(true);
     
-    let attachmentPath: string | null = null;
+    let attachmentPath: string | undefined = undefined;
 
     try {
       // Upload file if present
@@ -138,7 +138,7 @@ export function ChatWindow({ chatId, currentUserId, otherUserName, onEndChat }: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: currentUserId,
-          text: messageText || null,
+          text: messageText,
           attachmentPath,
         }),
       });

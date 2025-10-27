@@ -86,8 +86,8 @@ export async function POST(
     const message = await createMessage({
       chat_id: chatId,
       user_id: userId,
-      text: text?.trim() || null,
-      attachment_path: attachmentPath || null,
+      text: text?.trim() || undefined,
+      attachment_path: attachmentPath || undefined,
     });
 
     if (!message) {
