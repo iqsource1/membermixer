@@ -1,9 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase client for both client and server-side
+// Client-side Supabase client (uses anon key with RLS)
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+// Server-side Supabase client (uses service role key, bypasses RLS)
+// Only use this in API routes, never expose to client
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
 );
 
 // Database types
@@ -39,7 +52,7 @@ export interface Message {
 // Helper functions for Supabase operations
 
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('profiles')
     .select('*')
     .eq('user_id', userId)
@@ -54,22 +67,30 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 }
 
 export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<Profile | null> {
-  const { data, error } = await supabase
+  console.log('[Supabase] Attempting to upsert profile:', profile.user_id);
+
+  const { data, error } = await supabaseAdmin
     .from('profiles')
     .upsert(profile, { onConflict: 'user_id' })
     .select()
     .single();
 
   if (error) {
-    console.error('Error upserting profile:', error);
+    console.error('[Supabase] Error upserting profile:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    });
     return null;
   }
 
+  console.log('[Supabase] Profile upserted successfully:', data.user_id);
   return data;
 }
 
 export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]> {
-  let query = supabase
+  let query = supabaseAdmin
     .from('profiles')
     .select('*')
     .not('interests', 'is', null);
@@ -89,7 +110,7 @@ export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]>
 }
 
 export async function getActiveChat(userId: string): Promise<Chat | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('chats')
     .select('*')
     .contains('user_ids', [userId])
@@ -106,8 +127,8 @@ export async function getActiveChat(userId: string): Promise<Chat | null> {
 
 export async function createChat(userId1: string, userId2: string): Promise<Chat | null> {
   const chatId = crypto.randomUUID();
-  
-  const { data, error } = await supabase
+
+  const { data, error } = await supabaseAdmin
     .from('chats')
     .insert({
       id: chatId,
@@ -126,7 +147,7 @@ export async function createChat(userId1: string, userId2: string): Promise<Chat
 }
 
 export async function getChat(chatId: string): Promise<Chat | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('chats')
     .select('*')
     .eq('id', chatId)
@@ -141,7 +162,7 @@ export async function getChat(chatId: string): Promise<Chat | null> {
 }
 
 export async function getMessages(chatId: string, limit = 50): Promise<Message[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('messages')
     .select('*')
     .eq('chat_id', chatId)
@@ -157,7 +178,7 @@ export async function getMessages(chatId: string, limit = 50): Promise<Message[]
 }
 
 export async function createMessage(message: Omit<Message, 'id' | 'timestamp'>): Promise<Message | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('messages')
     .insert(message)
     .select()
@@ -169,7 +190,7 @@ export async function createMessage(message: Omit<Message, 'id' | 'timestamp'>):
   }
 
   // Update chat last_message_at
-  await supabase
+  await supabaseAdmin
     .from('chats')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', message.chat_id);
