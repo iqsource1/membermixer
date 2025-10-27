@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Client-side Supabase client (uses anon key with RLS)
 export const supabase = createClient(
@@ -7,9 +7,9 @@ export const supabase = createClient(
 );
 
 // Lazy initialization for server-side admin client
-let _supabaseAdmin: ReturnType<typeof createClient> | null = null;
+let _supabaseAdmin: SupabaseClient | null = null;
 
-function getSupabaseAdmin() {
+export function getSupabaseAdmin(): SupabaseClient {
   if (!_supabaseAdmin) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,14 +30,6 @@ function getSupabaseAdmin() {
 
   return _supabaseAdmin;
 }
-
-// Server-side Supabase client (uses service role key, bypasses RLS)
-// Only use this in API routes, never expose to client
-export const supabaseAdmin = new Proxy({} as ReturnType<typeof createClient>, {
-  get(target, prop) {
-    return getSupabaseAdmin()[prop as keyof ReturnType<typeof createClient>];
-  }
-});
 
 // Database types
 export interface Profile {
@@ -72,7 +64,7 @@ export interface Message {
 // Helper functions for Supabase operations
 
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('profiles')
     .select('*')
     .eq('user_id', userId)
@@ -89,7 +81,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<Profile | null> {
   console.log('[Supabase] Attempting to upsert profile:', profile.user_id);
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('profiles')
     .upsert(profile, { onConflict: 'user_id' })
     .select()
@@ -110,7 +102,7 @@ export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<
 }
 
 export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]> {
-  let query = supabaseAdmin
+  let query = getSupabaseAdmin()
     .from('profiles')
     .select('*')
     .not('interests', 'is', null);
@@ -130,7 +122,7 @@ export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]>
 }
 
 export async function getActiveChat(userId: string): Promise<Chat | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('chats')
     .select('*')
     .contains('user_ids', [userId])
@@ -148,7 +140,7 @@ export async function getActiveChat(userId: string): Promise<Chat | null> {
 export async function createChat(userId1: string, userId2: string): Promise<Chat | null> {
   const chatId = crypto.randomUUID();
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('chats')
     .insert({
       id: chatId,
@@ -167,7 +159,7 @@ export async function createChat(userId1: string, userId2: string): Promise<Chat
 }
 
 export async function getChat(chatId: string): Promise<Chat | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('chats')
     .select('*')
     .eq('id', chatId)
@@ -182,7 +174,7 @@ export async function getChat(chatId: string): Promise<Chat | null> {
 }
 
 export async function getMessages(chatId: string, limit = 50): Promise<Message[]> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('messages')
     .select('*')
     .eq('chat_id', chatId)
@@ -198,7 +190,7 @@ export async function getMessages(chatId: string, limit = 50): Promise<Message[]
 }
 
 export async function createMessage(message: Omit<Message, 'id' | 'timestamp'>): Promise<Message | null> {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('messages')
     .insert(message)
     .select()
@@ -210,7 +202,7 @@ export async function createMessage(message: Omit<Message, 'id' | 'timestamp'>):
   }
 
   // Update chat last_message_at
-  await supabaseAdmin
+  await getSupabaseAdmin()
     .from('chats')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', message.chat_id);
