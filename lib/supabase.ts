@@ -78,7 +78,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
   return data;
 }
 
-export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<Profile | null> {
+export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<{ data: Profile | null; error: any }> {
   console.log('[Supabase] Attempting to upsert profile:', profile.user_id);
 
   const { data, error } = await getSupabaseAdmin()
@@ -94,11 +94,11 @@ export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<
       details: error.details,
       hint: error.hint
     });
-    return null;
+    return { data: null, error };
   }
 
   console.log('[Supabase] Profile upserted successfully:', data.user_id);
-  return data;
+  return { data, error: null };
 }
 
 export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]> {

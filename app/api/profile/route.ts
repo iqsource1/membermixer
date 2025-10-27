@@ -80,12 +80,18 @@ export async function POST(req: NextRequest) {
       interestsCount: profileData.interests.length
     });
 
-    const updatedProfile = await createOrUpdateProfile(profileData);
+    const { data: updatedProfile, error: dbError } = await createOrUpdateProfile(profileData);
 
-    if (!updatedProfile) {
-      console.error('[Profile API] Failed to upsert profile - no data returned');
+    if (dbError || !updatedProfile) {
+      console.error('[Profile API] Failed to upsert profile:', dbError);
       return NextResponse.json(
-        { error: 'Failed to save profile - database operation returned null' },
+        {
+          error: 'Failed to save profile',
+          details: dbError ? dbError.message : 'No data returned',
+          code: dbError?.code,
+          hint: dbError?.hint,
+          supabaseDetails: dbError?.details
+        },
         { status: 500 }
       );
     }
