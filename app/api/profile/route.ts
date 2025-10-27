@@ -53,11 +53,11 @@ export async function POST(req: NextRequest) {
       name,
       interests: interests || profile?.interests || [],
       bio: bio || profile?.bio || '',
-      avatar_path: avatarPath || profile?.avatar_path || null,
+      avatar_path: avatarPath || profile?.avatar_path,
       matches_used: profile?.matches_used || 0,
       has_unlimited_matches: profile?.has_unlimited_matches || false,
       active_subscription: profile?.active_subscription || false,
-      last_match_at: profile?.last_match_at || null,
+      last_match_at: profile?.last_match_at,
       created_at: profile?.created_at || new Date().toISOString(),
     };
 
