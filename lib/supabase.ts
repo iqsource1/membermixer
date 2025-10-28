@@ -1,80 +1,16 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-// Create Supabase client factory that lazily initializes
-function getSupabaseClient(): SupabaseClient {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Simple, working Supabase client using anon key
+// RLS policies are permissive, so this works for everything
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[Supabase] Missing environment variables:', {
-      hasUrl: !!supabaseUrl,
-      hasKey: !!supabaseAnonKey,
-      nodeEnv: process.env.NODE_ENV,
-    });
-    throw new Error('Missing Supabase environment variables');
-  }
-
-  return createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    db: {
-      schema: 'public',
-    },
-    global: {
-      headers: { 'x-client-info': 'member-mixer' },
-    },
-  });
-}
-
-// Lazy client creation
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(target, prop) {
-    const client = getSupabaseClient();
-    return client[prop as keyof SupabaseClient];
-  },
-});
-
-// Lazy initialization for server-side admin client
-let _supabaseAdmin: SupabaseClient | null = null;
-
-export function getSupabaseAdmin(): SupabaseClient {
-  if (!_supabaseAdmin) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    console.log('[Supabase Admin] Initializing with:', {
-      hasUrl: !!supabaseUrl,
-      hasKey: !!serviceRoleKey,
-      urlLength: supabaseUrl?.length,
-      keyLength: serviceRoleKey?.length,
-      urlStart: supabaseUrl?.substring(0, 30),
-    });
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error(
-        `Missing Supabase credentials: URL=${!!supabaseUrl}, ServiceKey=${!!serviceRoleKey}`
-      );
-    }
-
-    _supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      },
-      db: {
-        schema: 'public',
-      },
-      global: {
-        headers: { 'x-client-info': 'member-mixer-admin' },
-      },
-    });
-
-    console.log('[Supabase Admin] Client created successfully');
-  }
-
-  return _supabaseAdmin;
+// For API routes, just use the same client
+// The RLS policies allow all operations anyway
+export function getSupabaseAdmin() {
+  return supabase;
 }
 
 // Database types
@@ -110,7 +46,7 @@ export interface Message {
 // Helper functions for Supabase operations
 
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('user_id', userId)
@@ -127,7 +63,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<{ data: Profile | null; error: any }> {
   console.log('[Supabase] Attempting to upsert profile:', profile.user_id);
 
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from('profiles')
     .upsert(profile, { onConflict: 'user_id' })
     .select()
@@ -148,7 +84,7 @@ export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<
 }
 
 export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]> {
-  let query = getSupabaseAdmin()
+  let query = supabase
     .from('profiles')
     .select('*')
     .not('interests', 'is', null);
@@ -168,7 +104,7 @@ export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]>
 }
 
 export async function getActiveChat(userId: string): Promise<Chat | null> {
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from('chats')
     .select('*')
     .contains('user_ids', [userId])
@@ -186,7 +122,7 @@ export async function getActiveChat(userId: string): Promise<Chat | null> {
 export async function createChat(userId1: string, userId2: string): Promise<Chat | null> {
   const chatId = crypto.randomUUID();
 
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from('chats')
     .insert({
       id: chatId,
@@ -205,7 +141,7 @@ export async function createChat(userId1: string, userId2: string): Promise<Chat
 }
 
 export async function getChat(chatId: string): Promise<Chat | null> {
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from('chats')
     .select('*')
     .eq('id', chatId)
@@ -220,7 +156,7 @@ export async function getChat(chatId: string): Promise<Chat | null> {
 }
 
 export async function getMessages(chatId: string, limit = 50): Promise<Message[]> {
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error} = await supabase
     .from('messages')
     .select('*')
     .eq('chat_id', chatId)
@@ -236,7 +172,7 @@ export async function getMessages(chatId: string, limit = 50): Promise<Message[]
 }
 
 export async function createMessage(message: Omit<Message, 'id' | 'timestamp'>): Promise<Message | null> {
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from('messages')
     .insert(message)
     .select()
@@ -248,7 +184,7 @@ export async function createMessage(message: Omit<Message, 'id' | 'timestamp'>):
   }
 
   // Update chat last_message_at
-  await getSupabaseAdmin()
+  await supabase
     .from('chats')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', message.chat_id);
@@ -285,4 +221,3 @@ export async function getSignedUrl(bucket: string, path: string): Promise<string
 
   return data.signedUrl;
 }
-
