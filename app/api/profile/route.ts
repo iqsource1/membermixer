@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getProfile, createOrUpdateProfile } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 // Force Node.js runtime (not Edge) for Supabase compatibility
 export const runtime = 'nodejs';
 
+// Create Supabase client directly
+function createSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing Supabase environment variables');
+  }
+
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
 export async function GET(req: NextRequest) {
   try {
+    const supabase = createSupabaseClient();
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
 
@@ -16,21 +34,33 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const profile = await getProfile(userId);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
 
-    if (!profile) {
+    if (error) {
+      console.error('Get profile error:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch profile', details: error.message },
+        { status: 500 }
+      );
+    }
+
+    if (!data) {
       return NextResponse.json(
         { error: 'Profile not found' },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({ success: true, profile });
+    return NextResponse.json({ success: true, profile: data });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get profile error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch profile' },
+      { error: 'Failed to fetch profile', details: error.message },
       { status: 500 }
     );
   }
@@ -38,52 +68,42 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    console.log('[Profile API] Starting profile update/create');
-
+    const supabase = createSupabaseClient();
     const body = await req.json();
     const { userId, name, interests, bio, avatarPath } = body;
 
-    console.log('[Profile API] Request data:', {
-      userId,
-      name,
-      interestsCount: interests?.length,
-      hasBio: !!bio,
-      hasAvatar: !!avatarPath
-    });
-
     if (!userId || !name) {
-      console.error('[Profile API] Validation failed: missing userId or name');
       return NextResponse.json(
         { error: 'User ID and name are required' },
         { status: 400 }
       );
     }
 
-    // Get existing profile or create new one
-    console.log('[Profile API] Fetching existing profile for:', userId);
-    let profile = await getProfile(userId);
-    console.log('[Profile API] Existing profile:', profile ? 'Found' : 'Not found');
+    // Try to get existing profile first
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
 
     const profileData = {
       user_id: userId,
       name,
-      interests: interests || profile?.interests || [],
-      bio: bio || profile?.bio || '',
-      avatar_path: avatarPath || profile?.avatar_path,
-      matches_used: profile?.matches_used || 0,
-      has_unlimited_matches: profile?.has_unlimited_matches || false,
-      active_subscription: profile?.active_subscription || false,
-      last_match_at: profile?.last_match_at,
-      created_at: profile?.created_at || new Date().toISOString(),
+      interests: interests || existingProfile?.interests || [],
+      bio: bio || existingProfile?.bio || '',
+      avatar_path: avatarPath || existingProfile?.avatar_path,
+      matches_used: existingProfile?.matches_used || 0,
+      has_unlimited_matches: existingProfile?.has_unlimited_matches || false,
+      active_subscription: existingProfile?.active_subscription || false,
+      last_match_at: existingProfile?.last_match_at,
+      created_at: existingProfile?.created_at || new Date().toISOString(),
     };
 
-    console.log('[Profile API] Upserting profile data:', {
-      user_id: profileData.user_id,
-      name: profileData.name,
-      interestsCount: profileData.interests.length
-    });
-
-    const { data: updatedProfile, error: dbError } = await createOrUpdateProfile(profileData);
+    const { data: updatedProfile, error: dbError } = await supabase
+      .from('profiles')
+      .upsert(profileData, { onConflict: 'user_id' })
+      .select()
+      .single();
 
     if (dbError || !updatedProfile) {
       console.error('[Profile API] Failed to upsert profile:', dbError);
@@ -99,16 +119,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('[Profile API] Profile saved successfully:', updatedProfile.user_id);
     return NextResponse.json({ success: true, profile: updatedProfile });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Profile API] Caught exception:', error);
     return NextResponse.json(
       {
         error: 'Failed to update profile',
-        details: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
+        details: error.message,
+        code: error.code,
       },
       { status: 500 }
     );
