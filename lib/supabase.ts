@@ -1,14 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
-// Simple, working Supabase client using anon key
-// RLS policies are permissive, so this works for everything
-export const supabase = createClient(
+// Browser client for client-side operations
+export const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// For API routes, just use the same client
-// The RLS policies allow all operations anyway
+// For server-side (API routes), use the same browser client
+// This works because RLS policies are permissive
 export function getSupabaseAdmin() {
   return supabase;
 }
@@ -156,7 +155,7 @@ export async function getChat(chatId: string): Promise<Chat | null> {
 }
 
 export async function getMessages(chatId: string, limit = 50): Promise<Message[]> {
-  const { data, error} = await supabase
+  const { data, error } = await supabase
     .from('messages')
     .select('*')
     .eq('chat_id', chatId)
