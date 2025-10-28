@@ -1,22 +1,40 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Get environment variables
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Create Supabase client factory that lazily initializes
+function getSupabaseClient(): SupabaseClient {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Validate environment variables
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('[Supabase] Missing environment variables:', {
-    hasUrl: !!supabaseUrl,
-    hasKey: !!supabaseAnonKey,
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('[Supabase] Missing environment variables:', {
+      hasUrl: !!supabaseUrl,
+      hasKey: !!supabaseAnonKey,
+      nodeEnv: process.env.NODE_ENV,
+    });
+    throw new Error('Missing Supabase environment variables');
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    db: {
+      schema: 'public',
+    },
+    global: {
+      headers: { 'x-client-info': 'member-mixer' },
+    },
   });
 }
 
-// Client-side Supabase client (uses anon key with RLS)
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
-);
+// Lazy client creation
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(target, prop) {
+    const client = getSupabaseClient();
+    return client[prop as keyof SupabaseClient];
+  },
+});
 
 // Lazy initialization for server-side admin client
 let _supabaseAdmin: SupabaseClient | null = null;
@@ -32,7 +50,6 @@ export function getSupabaseAdmin(): SupabaseClient {
       urlLength: supabaseUrl?.length,
       keyLength: serviceRoleKey?.length,
       urlStart: supabaseUrl?.substring(0, 30),
-      keyStart: serviceRoleKey?.substring(0, 20)
     });
 
     if (!supabaseUrl || !serviceRoleKey) {
@@ -45,7 +62,13 @@ export function getSupabaseAdmin(): SupabaseClient {
       auth: {
         autoRefreshToken: false,
         persistSession: false
-      }
+      },
+      db: {
+        schema: 'public',
+      },
+      global: {
+        headers: { 'x-client-info': 'member-mixer-admin' },
+      },
     });
 
     console.log('[Supabase Admin] Client created successfully');
