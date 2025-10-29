@@ -160,6 +160,22 @@ export async function updateMatchQueueStatus(userId: string, status: string, mat
 
 // Chat Functions
 
+export async function getActiveChat(userId: string): Promise<any> {
+  try {
+    const result = await sql`
+      SELECT * FROM chats
+      WHERE ${userId} = ANY(user_ids)
+      AND ended_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('Error getting active chat:', error);
+    return null;
+  }
+}
+
 export async function createChat(userId1: string, userId2: string): Promise<any> {
   try {
     const userIdsArray = `{${userId1},${userId2}}`;

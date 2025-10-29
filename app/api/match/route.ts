@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  getProfile, 
-  getAllProfiles, 
+import {
+  getProfile,
+  getAllProfiles,
   createOrUpdateProfile,
   createChat,
-  getActiveChat 
-} from '@/lib/supabase';
-import { 
-  filterCandidates, 
-  findBestMatch, 
-  canCreateMatch 
+  getActiveChat
+} from '@/lib/db';
+import {
+  filterCandidates,
+  findBestMatch,
+  canCreateMatch
 } from '@/lib/matching';
+import { sql } from '@vercel/postgres';
+
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
