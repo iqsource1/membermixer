@@ -194,10 +194,23 @@ async function findMatchInQueue(userId: string, currentUser: any) {
 
     // Get profiles for queue users
     const candidateIds = queueUsers.rows.map(q => q.user_id);
-    const profiles = await sql`
-      SELECT * FROM profiles
-      WHERE user_id = ANY(${candidateIds})
-    `;
+
+    // If no candidates, return null
+    if (candidateIds.length === 0) {
+      return null;
+    }
+
+    // Build SQL query with multiple OR conditions instead of ANY
+    let profiles;
+    if (candidateIds.length === 1) {
+      profiles = await sql`SELECT * FROM profiles WHERE user_id = ${candidateIds[0]}`;
+    } else {
+      // For multiple IDs, query each one separately and combine results
+      const allProfiles = await Promise.all(
+        candidateIds.map(id => sql`SELECT * FROM profiles WHERE user_id = ${id}`)
+      );
+      profiles = { rows: allProfiles.flatMap(p => p.rows) };
+    }
 
     const candidates = profiles.rows;
     console.log('[Match Queue] Found', candidates.length, 'candidate profiles');
