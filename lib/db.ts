@@ -99,3 +99,79 @@ export async function getAllProfiles(excludeUserId?: string): Promise<Profile[]>
     return [];
   }
 }
+
+// Match Queue Functions
+
+export async function addToMatchQueue(userId: string): Promise<any> {
+  try {
+    const result = await sql`
+      INSERT INTO match_queue (user_id, status, created_at, expires_at)
+      VALUES (
+        ${userId},
+        'waiting',
+        NOW(),
+        NOW() + INTERVAL '10 minutes'
+      )
+      RETURNING *
+    `;
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error adding to match queue:', error);
+    return null;
+  }
+}
+
+export async function findWaitingUser(excludeUserId: string): Promise<any> {
+  try {
+    const result = await sql`
+      SELECT * FROM match_queue
+      WHERE status = 'waiting'
+      AND user_id != ${excludeUserId}
+      AND expires_at > NOW()
+      ORDER BY created_at ASC
+      LIMIT 1
+    `;
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('Error finding waiting user:', error);
+    return null;
+  }
+}
+
+export async function updateMatchQueueStatus(userId: string, status: string, matchedWith?: string): Promise<void> {
+  try {
+    if (matchedWith) {
+      await sql`
+        UPDATE match_queue
+        SET status = ${status}, matched_with = ${matchedWith}, matched_at = NOW()
+        WHERE user_id = ${userId} AND status = 'waiting'
+      `;
+    } else {
+      await sql`
+        UPDATE match_queue
+        SET status = ${status}
+        WHERE user_id = ${userId} AND status = 'waiting'
+      `;
+    }
+  } catch (error) {
+    console.error('Error updating match queue:', error);
+  }
+}
+
+// Chat Functions
+
+export async function createChat(userId1: string, userId2: string): Promise<any> {
+  try {
+    const userIdsArray = `{${userId1},${userId2}}`;
+
+    const result = await sql`
+      INSERT INTO chats (user_ids, created_at, last_message_at)
+      VALUES (${userIdsArray}::text[], NOW(), NOW())
+      RETURNING *
+    `;
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error creating chat:', error);
+    return null;
+  }
+}

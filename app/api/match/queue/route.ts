@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, getProfile, createChat, createOrUpdateProfile } from '@/lib/supabase';
+import {
+  getProfile,
+  createChat,
+  createOrUpdateProfile,
+  addToMatchQueue,
+  findWaitingUser,
+  updateMatchQueueStatus,
+  getAllProfiles
+} from '@/lib/db';
 import { jaccardSimilarity } from '@/lib/matching';
+import { sql } from '@vercel/postgres';
+
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,9 +22,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
+    console.log('[Match Queue] Request from user:', userId);
+
     // Get current user profile
     const currentUser = await getProfile(userId);
-    if (!currentUser || !currentUser.interests?.length) {
+    console.log('[Match Queue] User profile:', currentUser);
+
+    if (!currentUser || !currentUser.interests || currentUser.interests.length === 0) {
       return NextResponse.json(
         { error: 'Please complete your profile with interests first' },
         { status: 400 }
@@ -21,51 +36,50 @@ export async function POST(req: NextRequest) {
     }
 
     // Check if user already in queue
-    const { data: existingQueue } = await supabase
-      .from('match_queue')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'waiting')
-      .single();
+    const existingQueue = await sql`
+      SELECT * FROM match_queue
+      WHERE user_id = ${userId}
+      AND status = 'waiting'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
 
-    if (existingQueue) {
+    if (existingQueue.rows.length > 0) {
+      console.log('[Match Queue] User already in queue');
       // Already in queue, check if we can find a match now
       const match = await findMatchInQueue(userId, currentUser);
-      
+
       if (match) {
         return NextResponse.json({
           status: 'matched',
-          queueId: existingQueue.id,
+          queueId: existingQueue.rows[0].id,
           match,
         });
       }
 
       return NextResponse.json({
         status: 'waiting',
-        queueId: existingQueue.id,
+        queueId: existingQueue.rows[0].id,
         message: 'Searching for your match...',
       });
     }
 
     // Add user to queue
-    const { data: queueEntry, error: queueError } = await supabase
-      .from('match_queue')
-      .insert({
-        user_id: userId,
-        status: 'waiting',
-      })
-      .select()
-      .single();
+    console.log('[Match Queue] Adding user to queue');
+    const queueEntry = await addToMatchQueue(userId);
 
-    if (queueError) {
-      console.error('Queue insert error:', queueError);
+    if (!queueEntry) {
+      console.error('[Match Queue] Failed to add to queue');
       return NextResponse.json({ error: 'Failed to join queue' }, { status: 500 });
     }
+
+    console.log('[Match Queue] User added to queue:', queueEntry.id);
 
     // Try to find a match immediately
     const match = await findMatchInQueue(userId, currentUser);
 
     if (match) {
+      console.log('[Match Queue] Match found immediately!');
       return NextResponse.json({
         status: 'matched',
         queueId: queueEntry.id,
@@ -73,6 +87,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    console.log('[Match Queue] No match yet, waiting...');
     return NextResponse.json({
       status: 'waiting',
       queueId: queueEntry.id,
@@ -80,7 +95,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Match queue error:', error);
+    console.error('[Match Queue] Error:', error);
     return NextResponse.json({ error: 'Failed to process match request' }, { status: 500 });
   }
 }
@@ -97,33 +112,39 @@ export async function GET(req: NextRequest) {
     }
 
     // Get user's queue entry
-    let query = supabase.from('match_queue').select('*').eq('user_id', userId);
-    
-    if (queueId) {
-      query = query.eq('id', queueId);
-    }
+    const queueResult = queueId
+      ? await sql`
+          SELECT * FROM match_queue
+          WHERE user_id = ${userId} AND id = ${queueId}
+          AND status = 'waiting'
+          ORDER BY created_at DESC
+          LIMIT 1
+        `
+      : await sql`
+          SELECT * FROM match_queue
+          WHERE user_id = ${userId}
+          AND status = 'waiting'
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
 
-    const { data: queueEntry } = await query
-      .eq('status', 'waiting')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!queueEntry) {
+    if (queueResult.rows.length === 0) {
       return NextResponse.json({ status: 'not_in_queue' });
     }
+
+    const queueEntry = queueResult.rows[0];
 
     // Check if match was found
     if (queueEntry.matched_with) {
       const matchProfile = await getProfile(queueEntry.matched_with);
-      
+
       return NextResponse.json({
         status: 'matched',
         match: {
           id: matchProfile?.user_id,
           name: matchProfile?.name,
           bio: matchProfile?.bio,
-          sharedInterests: [], // Will calculate from chat
+          sharedInterests: [],
         },
       });
     }
@@ -132,7 +153,7 @@ export async function GET(req: NextRequest) {
     const currentUser = await getProfile(userId);
     if (currentUser) {
       const match = await findMatchInQueue(userId, currentUser);
-      
+
       if (match) {
         return NextResponse.json({
           status: 'matched',
@@ -147,7 +168,7 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Queue status error:', error);
+    console.error('[Match Queue] Status check error:', error);
     return NextResponse.json({ error: 'Failed to check status' }, { status: 500 });
   }
 }
@@ -155,26 +176,33 @@ export async function GET(req: NextRequest) {
 // Helper function to find match in queue
 async function findMatchInQueue(userId: string, currentUser: any) {
   try {
-    // Get all waiting users in queue (excluding current user)
-    const { data: queueUsers } = await supabase
-      .from('match_queue')
-      .select('user_id')
-      .eq('status', 'waiting')
-      .neq('user_id', userId)
-      .gt('expires_at', new Date().toISOString());
+    console.log('[Match Queue] Looking for matches for user:', userId);
 
-    if (!queueUsers || queueUsers.length === 0) {
+    // Get all waiting users in queue (excluding current user)
+    const queueUsers = await sql`
+      SELECT user_id FROM match_queue
+      WHERE status = 'waiting'
+      AND user_id != ${userId}
+      AND expires_at > NOW()
+    `;
+
+    console.log('[Match Queue] Found', queueUsers.rows.length, 'waiting users');
+
+    if (queueUsers.rows.length === 0) {
       return null;
     }
 
     // Get profiles for queue users
-    const candidateIds = queueUsers.map(q => q.user_id);
-    const { data: candidates } = await supabase
-      .from('profiles')
-      .select('*')
-      .in('user_id', candidateIds);
+    const candidateIds = queueUsers.rows.map(q => q.user_id);
+    const profiles = await sql`
+      SELECT * FROM profiles
+      WHERE user_id = ANY(${candidateIds})
+    `;
 
-    if (!candidates || candidates.length === 0) {
+    const candidates = profiles.rows;
+    console.log('[Match Queue] Found', candidates.length, 'candidate profiles');
+
+    if (candidates.length === 0) {
       return null;
     }
 
@@ -184,7 +212,7 @@ async function findMatchInQueue(userId: string, currentUser: any) {
       .map(candidate => {
         const score = jaccardSimilarity(currentUser.interests, candidate.interests);
         const shared = currentUser.interests.filter((i: string) => candidate.interests.includes(i));
-        
+
         return {
           candidate,
           score,
@@ -192,6 +220,8 @@ async function findMatchInQueue(userId: string, currentUser: any) {
         };
       })
       .sort((a, b) => b.score - a.score);
+
+    console.log('[Match Queue] Scored', scored.length, 'candidates');
 
     if (scored.length === 0) {
       return null;
@@ -201,38 +231,23 @@ async function findMatchInQueue(userId: string, currentUser: any) {
     const threshold = 0.2;
     const goodMatches = scored.filter(s => s.score >= threshold);
     const matchPool = goodMatches.length > 0 ? goodMatches : scored.slice(0, Math.max(1, Math.ceil(scored.length * 0.2)));
-    
+
     const bestMatch = matchPool[Math.floor(Math.random() * matchPool.length)];
+    console.log('[Match Queue] Selected match:', bestMatch.candidate.user_id, 'with score:', bestMatch.score);
 
     // Create chat
     const chat = await createChat(userId, bestMatch.candidate.user_id);
-    
+
     if (!chat) {
+      console.error('[Match Queue] Failed to create chat');
       return null;
     }
 
-    // Update both queue entries
-    await supabase
-      .from('match_queue')
-      .update({
-        status: 'matched',
-        matched_with: bestMatch.candidate.user_id,
-        match_score: bestMatch.score,
-        matched_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId)
-      .eq('status', 'waiting');
+    console.log('[Match Queue] Created chat:', chat.id);
 
-    await supabase
-      .from('match_queue')
-      .update({
-        status: 'matched',
-        matched_with: userId,
-        match_score: bestMatch.score,
-        matched_at: new Date().toISOString(),
-      })
-      .eq('user_id', bestMatch.candidate.user_id)
-      .eq('status', 'waiting');
+    // Update both queue entries
+    await updateMatchQueueStatus(userId, 'matched', bestMatch.candidate.user_id);
+    await updateMatchQueueStatus(bestMatch.candidate.user_id, 'matched', userId);
 
     // Update match counts
     await createOrUpdateProfile({
@@ -247,6 +262,8 @@ async function findMatchInQueue(userId: string, currentUser: any) {
       last_match_at: new Date().toISOString(),
     });
 
+    console.log('[Match Queue] Match complete!');
+
     return {
       id: bestMatch.candidate.user_id,
       name: bestMatch.candidate.name,
@@ -257,7 +274,7 @@ async function findMatchInQueue(userId: string, currentUser: any) {
     };
 
   } catch (error) {
-    console.error('Find match error:', error);
+    console.error('[Match Queue] Find match error:', error);
     return null;
   }
 }
@@ -272,16 +289,17 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'User ID required' }, { status: 400 });
     }
 
-    await supabase
-      .from('match_queue')
-      .update({ status: 'cancelled' })
-      .eq('user_id', userId)
-      .eq('status', 'waiting');
+    await sql`
+      UPDATE match_queue
+      SET status = 'cancelled'
+      WHERE user_id = ${userId}
+      AND status = 'waiting'
+    `;
 
     return NextResponse.json({ success: true, message: 'Left queue' });
 
   } catch (error) {
-    console.error('Cancel queue error:', error);
+    console.error('[Match Queue] Cancel error:', error);
     return NextResponse.json({ error: 'Failed to leave queue' }, { status: 500 });
   }
 }
