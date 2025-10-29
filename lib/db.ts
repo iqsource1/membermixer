@@ -33,6 +33,10 @@ export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<
   try {
     console.log('[DB] Attempting to upsert profile:', profile.user_id);
 
+    // Convert interests array to PostgreSQL array format
+    const interestsArray = profile.interests || [];
+    const interestsStr = `{${interestsArray.map(i => `"${i}"`).join(',')}}`;
+
     const result = await sql`
       INSERT INTO profiles (
         user_id, name, bio, interests, avatar_path,
@@ -42,7 +46,7 @@ export async function createOrUpdateProfile(profile: Partial<Profile>): Promise<
         ${profile.user_id},
         ${profile.name},
         ${profile.bio || ''},
-        ${profile.interests || []},
+        ${interestsStr}::text[],
         ${profile.avatar_path || null},
         ${profile.matches_used || 0},
         ${profile.has_unlimited_matches || false},
