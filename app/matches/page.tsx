@@ -210,23 +210,15 @@ export default function MatchesPage() {
                 </div>
 
                 {queueStatus === 'idle' && (
-                  <>
-                    <Button
-                      onClick={handleFindMatch}
-                      disabled={!profile || profile.interests?.length < 3}
-                      size="lg"
-                      className="w-full"
-                    >
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      Find a Match
-                    </Button>
-
-                    {(!profile || profile.interests?.length < 3) && (
-                      <p className="text-sm text-muted-foreground text-center mt-2">
-                        Please add at least 3 interests to your profile
-                      </p>
-                    )}
-                  </>
+                  <Button
+                    onClick={handleFindMatch}
+                    disabled={!profile}
+                    size="lg"
+                    className="w-full"
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Find a Match
+                  </Button>
                 )}
 
                 {queueStatus === 'waiting' && (

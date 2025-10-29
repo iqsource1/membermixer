@@ -28,9 +28,9 @@ export async function POST(req: NextRequest) {
     const currentUser = await getProfile(userId);
     console.log('[Match Queue] User profile:', currentUser);
 
-    if (!currentUser || !currentUser.interests || currentUser.interests.length === 0) {
+    if (!currentUser) {
       return NextResponse.json(
-        { error: 'Please complete your profile with interests first' },
+        { error: 'Please create your profile first' },
         { status: 400 }
       );
     }
@@ -206,34 +206,28 @@ async function findMatchInQueue(userId: string, currentUser: any) {
       return null;
     }
 
-    // Calculate compatibility scores
-    const scored = candidates
-      .filter(c => c.interests && c.interests.length > 0)
-      .map(candidate => {
-        const score = jaccardSimilarity(currentUser.interests, candidate.interests);
-        const shared = currentUser.interests.filter((i: string) => candidate.interests.includes(i));
+    // Pick a completely random match from waiting users
+    const randomMatch = candidates[Math.floor(Math.random() * candidates.length)];
 
-        return {
-          candidate,
-          score,
-          sharedInterests: shared,
-        };
-      })
-      .sort((a, b) => b.score - a.score);
+    console.log('[Match Queue] Randomly selected match:', randomMatch.user_id);
 
-    console.log('[Match Queue] Scored', scored.length, 'candidates');
+    // Calculate shared interests if they exist (for display purposes only)
+    const sharedInterests = (currentUser.interests && randomMatch.interests)
+      ? currentUser.interests.filter((i: string) => randomMatch.interests.includes(i))
+      : [];
 
-    if (scored.length === 0) {
-      return null;
-    }
+    const score = sharedInterests.length / Math.max(
+      (currentUser.interests?.length || 1),
+      (randomMatch.interests?.length || 1)
+    );
 
-    // Get best match (or random from top 20%)
-    const threshold = 0.2;
-    const goodMatches = scored.filter(s => s.score >= threshold);
-    const matchPool = goodMatches.length > 0 ? goodMatches : scored.slice(0, Math.max(1, Math.ceil(scored.length * 0.2)));
+    const bestMatch = {
+      candidate: randomMatch,
+      score,
+      sharedInterests,
+    };
 
-    const bestMatch = matchPool[Math.floor(Math.random() * matchPool.length)];
-    console.log('[Match Queue] Selected match:', bestMatch.candidate.user_id, 'with score:', bestMatch.score);
+    console.log('[Match Queue] Match:', bestMatch.candidate.user_id);
 
     // Create chat
     const chat = await createChat(userId, bestMatch.candidate.user_id);
